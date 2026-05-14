@@ -1,0 +1,269 @@
+import os
+import requests
+from datetime import datetime, timedelta
+import pytz
+import json
+import time
+
+# ============================================================
+# KONFIGURASI - ISI DENGAN DATA LO
+# ============================================================
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+# Threshold viral
+MIN_SHARE_PROXY = 10000   # minimal view count sebagai proxy viral
+MAX_HOURS = 4             # dalam berapa jam video harus viral
+
+# Keywords pencarian
+CAREER_KEYWORDS = [
+    "tips naik gaji",
+    "cara cepat promosi kerja",
+    "tips kerja di korporat",
+    "pengalaman kerja 5 tahun",
+    "salary negotiation indonesia",
+    "career advice indonesia",
+    "naik jabatan cepat",
+    "tips sukses karir",
+]
+
+WIB = pytz.timezone("Asia/Jakarta")
+
+# ============================================================
+# FUNGSI PENCARIAN YOUTUBE
+# ============================================================
+def search_youtube_videos(keyword):
+    """Cari video YouTube berdasarkan keyword, published dalam 24 jam terakhir."""
+    published_after = (datetime.now(pytz.utc) - timedelta(hours=24)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    url = "https://www.googleapis.com/youtube/v3/search"
+    params = {
+        "part": "snippet",
+        "q": keyword,
+        "type": "video",
+        "videoDuration": "short",  # YouTube Shorts = short duration
+        "publishedAfter": published_after,
+        "maxResults": 10,
+        "order": "viewCount",
+        "relevanceLanguage": "id",
+        "key": YOUTUBE_API_KEY,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json().get("items", [])
+    except Exception as e:
+        print(f"Error searching '{keyword}': {e}")
+        return []
+
+
+def get_video_stats(video_ids):
+    """Ambil statistik (view, like, comment) dari list video ID."""
+    url = "https://www.googleapis.com/youtube/v3/videos"
+    params = {
+        "part": "statistics,contentDetails,snippet",
+        "id": ",".join(video_ids),
+        "key": YOUTUBE_API_KEY,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json().get("items", [])
+    except Exception as e:
+        print(f"Error getting stats: {e}")
+        return []
+
+
+def is_viral(video, published_at_str):
+    """
+    Cek apakah video viral berdasarkan kriteria:
+    - View count > 10.000 dalam < 4 jam setelah publish
+    - Atau engagement rate tinggi (like + comment / view > 5%)
+    """
+    stats = video.get("statistics", {})
+    view_count = int(stats.get("viewCount", 0))
+    like_count = int(stats.get("likeCount", 0))
+    comment_count = int(stats.get("commentCount", 0))
+
+    # Hitung umur video dalam jam
+    published_at = datetime.strptime(published_at_str, "%Y-%m-%dT%H:%M:%SZ")
+    published_at = published_at.replace(tzinfo=pytz.utc)
+    age_hours = (datetime.now(pytz.utc) - published_at).total_seconds() / 3600
+
+    # Kondisi 1: 10k views dalam 4 jam pertama (proxy untuk viral share)
+    if age_hours <= MAX_HOURS and view_count >= MIN_SHARE_PROXY:
+        return True, f"🔥 {view_count:,} views dalam {age_hours:.1f} jam!"
+
+    # Kondisi 2: Engagement tinggi meski lebih dari 4 jam
+    if view_count > 0:
+        engagement = (like_count + comment_count) / view_count
+        if engagement > 0.05 and view_count > 5000:
+            return True, f"⚡ Engagement tinggi: {engagement:.1%} ({view_count:,} views)"
+
+    return False, ""
+
+
+# ============================================================
+# FUNGSI TELEGRAM
+# ============================================================
+def send_telegram(message):
+    """Kirim pesan ke Telegram."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False,
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("✅ Telegram alert sent!")
+        return True
+    except Exception as e:
+        print(f"❌ Telegram error: {e}")
+        return False
+
+
+def format_alert(video_data, viral_reason, keyword):
+    """Format pesan alert yang bagus untuk Telegram."""
+    snippet = video_data["snippet"]
+    stats = video_data.get("statistics", {})
+    video_id = video_data["id"]
+
+    title = snippet.get("title", "N/A")
+    channel = snippet.get("channelTitle", "N/A")
+    published = snippet.get("publishedAt", "")
+    view_count = int(stats.get("viewCount", 0))
+    like_count = int(stats.get("likeCount", 0))
+
+    # Format tanggal
+    try:
+        pub_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ")
+        pub_dt = pub_dt.replace(tzinfo=pytz.utc).astimezone(WIB)
+        pub_str = pub_dt.strftime("%d %b %Y, %H:%M WIB")
+    except Exception:
+        pub_str = published
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    message = f"""
+🚨 <b>VIRAL CAREER VIDEO ALERT!</b>
+
+📌 <b>Keyword:</b> {keyword}
+{viral_reason}
+
+🎬 <b>Judul:</b> {title}
+👤 <b>Channel:</b> {channel}
+📅 <b>Upload:</b> {pub_str}
+👁 <b>Views:</b> {view_count:,}
+❤️ <b>Likes:</b> {like_count:,}
+
+🔗 <b>Link:</b> {url}
+
+💡 <i>Video ini berpotensi mempengaruhi mindset karir banyak orang!</i>
+"""
+    return message.strip()
+
+
+# ============================================================
+# FUNGSI UTAMA
+# ============================================================
+def run_monitor():
+    """Jalankan monitoring untuk semua keyword."""
+    print(f"\n{'='*50}")
+    print(f"🔍 Mulai monitoring: {datetime.now(WIB).strftime('%d %b %Y, %H:%M WIB')}")
+    print(f"{'='*50}")
+
+    found_videos = []
+    seen_video_ids = set()
+
+    for keyword in CAREER_KEYWORDS:
+        print(f"\n🔎 Mencari: '{keyword}'")
+        videos = search_youtube_videos(keyword)
+
+        if not videos:
+            print(f"   Tidak ada hasil.")
+            continue
+
+        video_ids = [v["id"]["videoId"] for v in videos if "videoId" in v.get("id", {})]
+        if not video_ids:
+            continue
+
+        # Hindari duplikat
+        new_ids = [vid for vid in video_ids if vid not in seen_video_ids]
+        if not new_ids:
+            continue
+
+        seen_video_ids.update(new_ids)
+        stats_list = get_video_stats(new_ids)
+
+        for video in stats_list:
+            published_at = video["snippet"].get("publishedAt", "")
+            viral, reason = is_viral(video, published_at)
+            if viral:
+                found_videos.append((video, reason, keyword))
+                print(f"   ✅ VIRAL: {video['snippet']['title'][:50]}...")
+
+        # Jeda biar ga kena rate limit API
+        time.sleep(1)
+
+    # Kirim hasil ke Telegram
+    print(f"\n📊 Total viral videos ditemukan: {len(found_videos)}")
+
+    if found_videos:
+        # Header summary
+        send_telegram(
+            f"🌅 <b>Laporan Harian - {datetime.now(WIB).strftime('%d %b %Y')}</b>\n"
+            f"Ditemukan <b>{len(found_videos)} video viral</b> soal karir!\n"
+            f"Berikut detailnya 👇"
+        )
+        time.sleep(1)
+
+        for video, reason, keyword in found_videos:
+            message = format_alert(video, reason, keyword)
+            send_telegram(message)
+            time.sleep(2)  # Jeda antar pesan
+    else:
+        send_telegram(
+            f"🌅 <b>Laporan Harian - {datetime.now(WIB).strftime('%d %b %Y')}</b>\n\n"
+            f"✅ Tidak ada video karir yang viral hari ini.\n"
+            f"Pantau terus besok jam 08.00 WIB!"
+        )
+
+    print("\n✅ Monitoring selesai!")
+
+
+# ============================================================
+# SCHEDULER - JALANKAN SETIAP JAM 8 PAGI WIB
+# ============================================================
+def main():
+    print("🤖 Career Viral Monitor aktif!")
+    print(f"⏰ Akan kirim laporan setiap hari jam 08:00 WIB")
+
+    while True:
+        now = datetime.now(WIB)
+        # Jadwal: jam 8 pagi WIB
+        target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+
+        # Kalau jam 8 sudah lewat hari ini, jadwalkan besok
+        if now >= target:
+            target += timedelta(days=1)
+
+        wait_seconds = (target - now).total_seconds()
+        print(f"\n⏳ Jadwal berikutnya: {target.strftime('%d %b %Y, %H:%M WIB')}")
+        print(f"   Menunggu {wait_seconds/3600:.1f} jam...")
+
+        time.sleep(wait_seconds)
+        run_monitor()
+
+
+if __name__ == "__main__":
+    import sys
+    # Kalau ada argument "test", langsung jalankan tanpa tunggu jadwal
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        run_monitor()
+    else:
+        main()
