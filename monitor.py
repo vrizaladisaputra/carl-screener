@@ -43,7 +43,14 @@ CAREER_KEYWORDS = [
 # ============================================================
 # FILTER JUDUL - pastikan relevan karir
 # ============================================================
-RELEVANT_TITLE_KEYWORDS = 
+RELEVANT_TITLE_KEYWORDS = [
+    "gaji", "promosi", "karir", "kerja", "korporat",
+    "resign", "interview", "salary", "jabatan", "kantor",
+    "atasan", "bos", "perusahaan", "karyawan", "fresh graduate",
+    "burnout", "toxic", "networking", "skill", "passive income",
+    "work life", "negosiasi", "startup", "magang", "internship",
+]
+
 # ============================================================
 # FILTER EXCLUDE - konten yang TIDAK relevan
 # ============================================================
@@ -64,14 +71,6 @@ EXCLUDE_KEYWORDS = [
 
     # Selebriti
     "artis", "seleb", "influencer gaji", "youtuber gaji",
-]
-
-[
-    "gaji", "promosi", "karir", "kerja", "korporat",
-    "resign", "interview", "salary", "jabatan", "kantor",
-    "atasan", "bos", "perusahaan", "karyawan", "fresh graduate",
-    "burnout", "toxic", "networking", "skill", "passive income",
-    "work life", "negosiasi", "startup", "magang", "internship",
 ]
 
 WIB = pytz.timezone("Asia/Jakarta")
