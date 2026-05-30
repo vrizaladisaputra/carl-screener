@@ -312,7 +312,5 @@ def main():
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        run_monitor()
-    else:
-        main()
+    if __name__ == "__main__":
+    run_monitor()
