@@ -60,16 +60,49 @@ EXCLUDE_KEYWORDS = [
 ]
 
 # ============================================================
+# YOUTUBE FUNCTIONS
+# ============================================================
+def search_youtube_videos(keyword):
+    published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    url = "https://www.googleapis.com/youtube/v3/search"
+    params = {
+        "part": "snippet",
+        "q": keyword,
+        "type": "video",
+        "videoDuration": "short",
+        "publishedAfter": published_after,
+        "maxResults": 10,
+        "order": "viewCount",
+        "relevanceLanguage": "id",
+        "key": YOUTUBE_API_KEY,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json().get("items", [])
+    except Exception as e:
+        print(f"Error searching '{keyword}': {e}")
+        return []
+
+def get_video_stats(video_ids):
+    url = "https://www.googleapis.com/youtube/v3/videos"
+    params = {
+        "part": "statistics,contentDetails,snippet",
+        "id": ",".join(video_ids),
+        "key": YOUTUBE_API_KEY,
+    }
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json().get("items", [])
+    except Exception as e:
+        print(f"Error getting stats: {e}")
+        return []
+
+# ============================================================
 # CONDITION 1 & 2: VELOCITY THRESHOLD
 # ============================================================
 def check_velocity_threshold(stats):
-    """
-    C1 - Share Velocity proxy: comment/like ratio > 8%
-         Logika: share count tidak tersedia di API, comment tinggi = orang terpancing diskusi = proxy viral share
-    C2 - Engagement Density: comment/like ratio > 5%
-         Logika: komentar banyak relatif terhadap like = video memicu orang nulis, bukan cuma scroll
-    Salah satu terpenuhi = lolos
-    """
     view_count = int(stats.get("viewCount", 0))
     like_count = int(stats.get("likeCount", 0))
     comment_count = int(stats.get("commentCount", 0))
@@ -80,8 +113,8 @@ def check_velocity_threshold(stats):
     comment_to_like = comment_count / like_count
     like_to_view = like_count / view_count
 
-    c1_passed = comment_to_like >= 0.08  # proxy share velocity
-    c2_passed = comment_to_like >= 0.05  # engagement density
+    c1_passed = comment_to_like >= 0.08
+    c2_passed = comment_to_like >= 0.05
 
     metrics = {
         "view_count": view_count,
@@ -99,18 +132,12 @@ def check_velocity_threshold(stats):
 # CONDITION 3: TOPIC CLUSTER FILTER
 # ============================================================
 def check_topic_cluster(video):
-    """
-    Video harus mengandung minimal 2 kata dari cluster keywords
-    di judul, deskripsi, atau tags
-    """
     snippet = video.get("snippet", {})
     title = snippet.get("title", "").lower()
     description = snippet.get("description", "").lower()
     tags = " ".join(snippet.get("tags", [])).lower() if snippet.get("tags") else ""
-
     full_text = f"{title} {description} {tags}"
 
-    # Cek exclude dulu
     if any(kw in full_text for kw in EXCLUDE_KEYWORDS):
         return False, []
 
@@ -140,7 +167,6 @@ def send_telegram(message):
 def format_alert(video, metrics, matched_keywords, keyword):
     snippet = video.get("snippet", {})
     video_id = video["id"]
-
     title = snippet.get("title", "N/A")
     channel = snippet.get("channelTitle", "N/A")
     published = snippet.get("publishedAt", "")
@@ -155,7 +181,6 @@ def format_alert(video, metrics, matched_keywords, keyword):
     c_to_l = metrics.get("comment_to_like_ratio", 0)
     l_to_v = metrics.get("like_to_view_ratio", 0)
 
-    # Tentukan label kondisi yang lolos
     conditions = []
     if metrics.get("c1_passed"):
         conditions.append("✅ C1: Share Velocity tinggi")
@@ -164,7 +189,6 @@ def format_alert(video, metrics, matched_keywords, keyword):
     conditions.append("✅ C3: Topic Cluster match")
     conditions_str = "\n".join(conditions)
 
-    # Tentukan cluster yang match
     fin_match = [k for k in matched_keywords if k in CLUSTER_FINANSIAL]
     kar_match = [k for k in matched_keywords if k in CLUSTER_KARIER]
     res_match = [k for k in matched_keywords if k in CLUSTER_RESIGN]
@@ -224,14 +248,14 @@ def run_monitor():
             title = video["snippet"].get("title", "")
             print(f"\n   Cek: {title[:55]}...")
 
-            # CONDITION 3 dulu (lebih ringan, tidak butuh API call tambahan)
+            # C3 dulu (ringan, tidak butuh API call tambahan)
             c3_passed, matched_kw = check_topic_cluster(video)
             if not c3_passed:
                 print(f"   ❌ C3 gagal - keyword match: {matched_kw}")
                 continue
             print(f"   ✅ C3 lolos - {matched_kw}")
 
-            # CONDITION 1 & 2
+            # C1 & C2
             c12_passed, metrics = check_velocity_threshold(video.get("statistics", {}))
             if not c12_passed:
                 c_to_l = metrics.get("comment_to_like_ratio", 0)
@@ -264,43 +288,9 @@ def run_monitor():
 
     print("Monitoring selesai!")
 
-def search_youtube_videos(keyword):
-    published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    url = "https://www.googleapis.com/youtube/v3/search"
-    params = {
-        "part": "snippet",
-        "q": keyword,
-        "type": "video",
-        "videoDuration": "short",
-        "publishedAfter": published_after,
-        "maxResults": 10,
-        "order": "viewCount",
-        "relevanceLanguage": "id",
-        "key": YOUTUBE_API_KEY,
-    }
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        return response.json().get("items", [])
-    except Exception as e:
-        print(f"Error searching '{keyword}': {e}")
-        return []
-
-def get_video_stats(video_ids):
-    url = "https://www.googleapis.com/youtube/v3/videos"
-    params = {
-        "part": "statistics,contentDetails,snippet",
-        "id": ",".join(video_ids),
-        "key": YOUTUBE_API_KEY,
-    }
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        return response.json().get("items", [])
-    except Exception as e:
-        print(f"Error getting stats: {e}")
-        return []
-
+# ============================================================
+# SCHEDULER
+# ============================================================
 def main():
     print("Career Viral Monitor aktif!")
     print("Laporan dikirim setiap hari jam 08:00 dan 20:00 WIB")
