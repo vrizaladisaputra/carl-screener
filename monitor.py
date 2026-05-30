@@ -8,15 +8,23 @@ YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-# ============================================================
-# KONFIGURASI THRESHOLD - lebih sensitif
-# ============================================================
-MIN_SHARE_PROXY = 3000   # turun dari 10k ke 3k
-MAX_HOURS = 12            # diperluas dari 4 jam ke 12 jam
+WIB = pytz.timezone("Asia/Jakarta")
 
 # ============================================================
-# KEYWORDS - diperluas
+# CLUSTER KEYWORDS (Condition 3)
 # ============================================================
+CLUSTER_FINANSIAL = [
+    "gaji", "nego", "slip gaji", "bonus", "thr", "counter-offer", "counter offer", "kenaikan gaji"
+]
+CLUSTER_KARIER = [
+    "promosi", "jabatan", "anak emas", "performance review", "kpi", "rekomendasi", "naik jabatan"
+]
+CLUSTER_RESIGN = [
+    "budak korporat", "toxic workplace", "politik kantor", "resign", "quiet quitting",
+    "tenggo", "overtime", "burnout", "kerja keras", "toxic"
+]
+ALL_CLUSTERS = CLUSTER_FINANSIAL + CLUSTER_KARIER + CLUSTER_RESIGN
+
 CAREER_KEYWORDS = [
     "tips naik gaji",
     "cara cepat promosi kerja",
@@ -40,52 +48,222 @@ CAREER_KEYWORDS = [
     "skill yang dicari perusahaan",
 ]
 
-# ============================================================
-# FILTER JUDUL - pastikan relevan karir
-# ============================================================
-RELEVANT_TITLE_KEYWORDS = [
-    "gaji", "promosi", "karir", "kerja", "korporat",
-    "resign", "interview", "salary", "jabatan", "kantor",
-    "atasan", "bos", "perusahaan", "karyawan", "fresh graduate",
-    "burnout", "toxic", "networking", "skill", "passive income",
-    "work life", "negosiasi", "startup", "magang", "internship",
-]
-
-# ============================================================
-# FILTER EXCLUDE - konten yang TIDAK relevan
-# ============================================================
 EXCLUDE_KEYWORDS = [
-    # Politik & pemerintahan
     "hakim", "jaksa", "polisi", "tni", "pns", "asn", "pegawai negeri",
     "pemerintah", "dpr", "dprd", "menteri", "presiden", "gubernur",
     "walikota", "bupati", "mahkamah", "pengadilan", "korupsi", "kpk",
-    "anggaran", "apbn", "subsidi", "pajak pemerintah", "birokrasi",
-
-    # Drama & hiburan
     "drama china", "drama cina", "drama korea", "drakor", "cdrama",
     "drama thailand", "anime", "film", "sinetron", "ftv", "serial",
     "episode", "ending", "spoiler", "review drama", "nonton",
-
-    # Olahraga
     "pemain bola", "transfer pemain", "liga", "klub", "gaji pemain",
-
-    # Selebriti
-    "artis", "seleb", "influencer gaji", "youtuber gaji",
+    "artis", "seleb",
 ]
 
-WIB = pytz.timezone("Asia/Jakarta")
+# ============================================================
+# CONDITION 1 & 2: VELOCITY THRESHOLD
+# ============================================================
+def check_velocity_threshold(stats):
+    """
+    C1 - Share Velocity proxy: comment/like ratio > 8%
+         Logika: share count tidak tersedia di API, comment tinggi = orang terpancing diskusi = proxy viral share
+    C2 - Engagement Density: comment/like ratio > 5%
+         Logika: komentar banyak relatif terhadap like = video memicu orang nulis, bukan cuma scroll
+    Salah satu terpenuhi = lolos
+    """
+    view_count = int(stats.get("viewCount", 0))
+    like_count = int(stats.get("likeCount", 0))
+    comment_count = int(stats.get("commentCount", 0))
 
-def is_career_relevant(title):
-    title_lower = title.lower()
-    
-    # Cek apakah masuk exclude list dulu
-    if any(kw in title_lower for kw in EXCLUDE_KEYWORDS):
-        print(f"   ⛔ Excluded: {title[:50]}")
+    if like_count == 0 or view_count == 0:
+        return False, {}
+
+    comment_to_like = comment_count / like_count
+    like_to_view = like_count / view_count
+
+    c1_passed = comment_to_like >= 0.08  # proxy share velocity
+    c2_passed = comment_to_like >= 0.05  # engagement density
+
+    metrics = {
+        "view_count": view_count,
+        "like_count": like_count,
+        "comment_count": comment_count,
+        "comment_to_like_ratio": comment_to_like,
+        "like_to_view_ratio": like_to_view,
+        "c1_passed": c1_passed,
+        "c2_passed": c2_passed,
+    }
+
+    return c1_passed or c2_passed, metrics
+
+# ============================================================
+# CONDITION 3: TOPIC CLUSTER FILTER
+# ============================================================
+def check_topic_cluster(video):
+    """
+    Video harus mengandung minimal 2 kata dari cluster keywords
+    di judul, deskripsi, atau tags
+    """
+    snippet = video.get("snippet", {})
+    title = snippet.get("title", "").lower()
+    description = snippet.get("description", "").lower()
+    tags = " ".join(snippet.get("tags", [])).lower() if snippet.get("tags") else ""
+
+    full_text = f"{title} {description} {tags}"
+
+    # Cek exclude dulu
+    if any(kw in full_text for kw in EXCLUDE_KEYWORDS):
+        return False, []
+
+    matched = [kw for kw in ALL_CLUSTERS if kw in full_text]
+    return len(matched) >= 2, matched
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+def send_telegram(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False,
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        print("Telegram alert sent!")
+        return True
+    except Exception as e:
+        print(f"Telegram error: {e}")
         return False
-    
-    # Baru cek apakah relevan karir
-    return any(kw in title_lower for kw in RELEVANT_TITLE_KEYWORDS)
-    
+
+def format_alert(video, metrics, matched_keywords, keyword):
+    snippet = video.get("snippet", {})
+    video_id = video["id"]
+
+    title = snippet.get("title", "N/A")
+    channel = snippet.get("channelTitle", "N/A")
+    published = snippet.get("publishedAt", "")
+
+    try:
+        pub_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ")
+        pub_dt = pub_dt.replace(tzinfo=pytz.utc).astimezone(WIB)
+        pub_str = pub_dt.strftime("%d %b %Y, %H:%M WIB")
+    except Exception:
+        pub_str = published
+
+    c_to_l = metrics.get("comment_to_like_ratio", 0)
+    l_to_v = metrics.get("like_to_view_ratio", 0)
+
+    # Tentukan label kondisi yang lolos
+    conditions = []
+    if metrics.get("c1_passed"):
+        conditions.append("✅ C1: Share Velocity tinggi")
+    if metrics.get("c2_passed"):
+        conditions.append("✅ C2: Engagement Density tinggi")
+    conditions.append("✅ C3: Topic Cluster match")
+    conditions_str = "\n".join(conditions)
+
+    # Tentukan cluster yang match
+    fin_match = [k for k in matched_keywords if k in CLUSTER_FINANSIAL]
+    kar_match = [k for k in matched_keywords if k in CLUSTER_KARIER]
+    res_match = [k for k in matched_keywords if k in CLUSTER_RESIGN]
+
+    cluster_str = ""
+    if fin_match:
+        cluster_str += f"\n   💰 Finansial: {', '.join(fin_match)}"
+    if kar_match:
+        cluster_str += f"\n   📈 Karier: {', '.join(kar_match)}"
+    if res_match:
+        cluster_str += f"\n   🚪 Resign/Politik: {', '.join(res_match)}"
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    message = (
+        f"🚨 <b>VIRAL CAREER VIDEO ALERT!</b>\n\n"
+        f"🎬 <b>{title}</b>\n"
+        f"👤 {channel} | 📅 {pub_str}\n\n"
+        f"📊 <b>Metrics:</b>\n"
+        f"   👁 Views: {metrics.get('view_count', 0):,}\n"
+        f"   ❤️ Likes: {metrics.get('like_count', 0):,}\n"
+        f"   💬 Comments: {metrics.get('comment_count', 0):,}\n"
+        f"   📈 Comment/Like: {c_to_l:.1%}\n"
+        f"   📈 Like/View: {l_to_v:.1%}\n\n"
+        f"🔑 <b>Cluster Match:</b>{cluster_str}\n\n"
+        f"<b>Filter Lolos:</b>\n{conditions_str}\n\n"
+        f"🔗 {url}"
+    )
+    return message
+
+# ============================================================
+# MAIN MONITOR
+# ============================================================
+def run_monitor():
+    print(f"\n{'='*50}")
+    print(f"Mulai monitoring: {datetime.now(WIB).strftime('%d %b %Y, %H:%M WIB')}")
+    print(f"{'='*50}")
+
+    qualified_videos = []
+    seen_video_ids = set()
+
+    for keyword in CAREER_KEYWORDS:
+        print(f"\n🔎 Mencari: '{keyword}'")
+        videos = search_youtube_videos(keyword)
+        if not videos:
+            continue
+
+        video_ids = [v["id"]["videoId"] for v in videos if "videoId" in v.get("id", {})]
+        new_ids = [vid for vid in video_ids if vid not in seen_video_ids]
+        if not new_ids:
+            continue
+
+        seen_video_ids.update(new_ids)
+        stats_list = get_video_stats(new_ids)
+
+        for video in stats_list:
+            title = video["snippet"].get("title", "")
+            print(f"\n   Cek: {title[:55]}...")
+
+            # CONDITION 3 dulu (lebih ringan, tidak butuh API call tambahan)
+            c3_passed, matched_kw = check_topic_cluster(video)
+            if not c3_passed:
+                print(f"   ❌ C3 gagal - keyword match: {matched_kw}")
+                continue
+            print(f"   ✅ C3 lolos - {matched_kw}")
+
+            # CONDITION 1 & 2
+            c12_passed, metrics = check_velocity_threshold(video.get("statistics", {}))
+            if not c12_passed:
+                c_to_l = metrics.get("comment_to_like_ratio", 0)
+                print(f"   ❌ C1/C2 gagal - comment/like: {c_to_l:.1%}")
+                continue
+            print(f"   ✅ C1/C2 lolos - comment/like: {metrics.get('comment_to_like_ratio', 0):.1%}")
+
+            qualified_videos.append((video, metrics, matched_kw, keyword))
+
+        time.sleep(1)
+
+    print(f"\n📊 Total video lolos semua filter: {len(qualified_videos)}")
+
+    if qualified_videos:
+        send_telegram(
+            f"🌅 <b>Laporan - {datetime.now(WIB).strftime('%d %b %Y, %H:%M WIB')}</b>\n"
+            f"Ditemukan <b>{len(qualified_videos)} video</b> yang lolos semua filter!\n"
+            f"Berikut detailnya 👇"
+        )
+        time.sleep(1)
+        for video, metrics, matched_kw, keyword in qualified_videos:
+            send_telegram(format_alert(video, metrics, matched_kw, keyword))
+            time.sleep(2)
+    else:
+        send_telegram(
+            f"🌅 <b>Laporan - {datetime.now(WIB).strftime('%d %b %Y, %H:%M WIB')}</b>\n\n"
+            f"✅ Tidak ada video yang lolos semua filter saat ini.\n"
+            f"Pantau terus di laporan berikutnya!"
+        )
+
+    print("Monitoring selesai!")
+
 def search_youtube_videos(keyword):
     published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
@@ -123,156 +301,18 @@ def get_video_stats(video_ids):
         print(f"Error getting stats: {e}")
         return []
 
-def is_viral(video, published_at_str):
-    stats = video.get("statistics", {})
-    view_count = int(stats.get("viewCount", 0))
-    like_count = int(stats.get("likeCount", 0))
-    comment_count = int(stats.get("commentCount", 0))
-
-    published_at = datetime.strptime(published_at_str, "%Y-%m-%dT%H:%M:%SZ")
-    published_at = published_at.replace(tzinfo=pytz.utc)
-    age_hours = (datetime.now(pytz.utc) - published_at).total_seconds() / 3600
-
-    # Kondisi 1: 3k views dalam 12 jam
-    if age_hours <= MAX_HOURS and view_count >= MIN_SHARE_PROXY:
-        return True, f"🔥 {view_count:,} views dalam {age_hours:.1f} jam!"
-
-    # Kondisi 2: Engagement tinggi
-    if view_count > 0:
-        engagement = (like_count + comment_count) / view_count
-        if engagement > 0.05 and view_count > 2000:
-            return True, f"⚡ Engagement tinggi: {engagement:.1%} ({view_count:,} views)"
-
-    # Kondisi 3: View tinggi secara absolut (video lama tapi tetap viral)
-    if view_count >= 50000:
-        return True, f"📈 {view_count:,} views total — trending!"
-
-    return False, ""
-
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False,
-    }
-    try:
-        response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status()
-        print("Telegram alert sent!")
-        return True
-    except Exception as e:
-        print(f"Telegram error: {e}")
-        return False
-
-def format_alert(video_data, viral_reason, keyword):
-    snippet = video_data["snippet"]
-    stats = video_data.get("statistics", {})
-    video_id = video_data["id"]
-    title = snippet.get("title", "N/A")
-    channel = snippet.get("channelTitle", "N/A")
-    published = snippet.get("publishedAt", "")
-    view_count = int(stats.get("viewCount", 0))
-    like_count = int(stats.get("likeCount", 0))
-    comment_count = int(stats.get("commentCount", 0))
-
-    try:
-        pub_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ")
-        pub_dt = pub_dt.replace(tzinfo=pytz.utc).astimezone(WIB)
-        pub_str = pub_dt.strftime("%d %b %Y, %H:%M WIB")
-    except Exception:
-        pub_str = published
-
-    url = f"https://www.youtube.com/watch?v={video_id}"
-
-    message = (
-        f"🚨 <b>VIRAL CAREER VIDEO ALERT!</b>\n\n"
-        f"📌 <b>Keyword:</b> {keyword}\n"
-        f"{viral_reason}\n\n"
-        f"🎬 <b>Judul:</b> {title}\n"
-        f"👤 <b>Channel:</b> {channel}\n"
-        f"📅 <b>Upload:</b> {pub_str}\n"
-        f"👁 <b>Views:</b> {view_count:,}\n"
-        f"❤️ <b>Likes:</b> {like_count:,}\n"
-        f"💬 <b>Comments:</b> {comment_count:,}\n\n"
-        f"🔗 <b>Link:</b> {url}\n\n"
-        f"💡 <i>Video ini berpotensi mempengaruhi mindset karir banyak orang!</i>"
-    )
-    return message
-
-def run_monitor():
-    now_str = datetime.now(WIB).strftime('%d %b %Y, %H:%M WIB')
-    print(f"Mulai monitoring: {now_str}")
-    found_videos = []
-    seen_video_ids = set()
-
-    for keyword in CAREER_KEYWORDS:
-        print(f"Mencari: '{keyword}'")
-        videos = search_youtube_videos(keyword)
-        if not videos:
-            continue
-
-        video_ids = [v["id"]["videoId"] for v in videos if "videoId" in v.get("id", {})]
-        if not video_ids:
-            continue
-
-        new_ids = [vid for vid in video_ids if vid not in seen_video_ids]
-        if not new_ids:
-            continue
-
-        seen_video_ids.update(new_ids)
-        stats_list = get_video_stats(new_ids)
-
-        for video in stats_list:
-            published_at = video["snippet"].get("publishedAt", "")
-            title = video["snippet"].get("title", "")
-            viral, reason = is_viral(video, published_at)
-            if viral and is_career_relevant(title):
-                found_videos.append((video, reason, keyword))
-                print(f"VIRAL: {title[:60]}")
-
-        time.sleep(1)
-
-    print(f"Total viral videos: {len(found_videos)}")
-
-    if found_videos:
-        send_telegram(
-            f"🌅 <b>Laporan - {datetime.now(WIB).strftime('%d %b %Y, %H:%M WIB')}</b>\n"
-            f"Ditemukan <b>{len(found_videos)} video viral</b> soal karir!\n"
-            f"Berikut detailnya 👇"
-        )
-        time.sleep(1)
-        for video, reason, keyword in found_videos:
-            send_telegram(format_alert(video, reason, keyword))
-            time.sleep(2)
-    else:
-        send_telegram(
-            f"🌅 <b>Laporan - {datetime.now(WIB).strftime('%d %b %Y, %H:%M WIB')}</b>\n\n"
-            f"✅ Tidak ada video karir viral saat ini.\n"
-            f"Pantau terus di laporan berikutnya!"
-        )
-
-    print("Monitoring selesai!")
-
 def main():
     print("Career Viral Monitor aktif!")
     print("Laporan dikirim setiap hari jam 08:00 dan 20:00 WIB")
 
     while True:
         now = datetime.now(WIB)
-
-        # 2x sehari: jam 8 pagi dan jam 8 malam
         schedules = [
             now.replace(hour=8, minute=0, second=0, microsecond=0),
             now.replace(hour=20, minute=0, second=0, microsecond=0),
         ]
-
         future = [t for t in schedules if t > now]
-        if future:
-            target = min(future)
-        else:
-            target = schedules[0] + timedelta(days=1)
+        target = min(future) if future else schedules[0] + timedelta(days=1)
 
         wait_seconds = (target - now).total_seconds()
         print(f"Jadwal berikutnya: {target.strftime('%d %b %Y, %H:%M WIB')}")
