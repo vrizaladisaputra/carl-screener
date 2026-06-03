@@ -110,15 +110,19 @@ def send_alert_with_button(message, callback_data):
     try: requests.post(url, json=payload, timeout=10)
     except: pass
 
-def forward_to_magnus(title, channel, video_url):
-    payload_text = f"GENERATE_SCRIPT\nTITLE:{title}\nCHANNEL:{channel}\nURL:{video_url}"
-    # FIX: Gunakan TELEGRAM_TOKEN (Token Carl sendiri), bukan MAGNUS_TOKEN
+def forward_to_magnus(title, channel, video_url, matched_keywords=None):
+    # Gabungkan kata kunci jika ada, kalau tidak ada pakai default
+    kw_str = ",".join(matched_keywords) if matched_keywords else "gaji,karir"
+    
+    payload_text = f"GENERATE_SCRIPT\nTITLE:{title}\nCHANNEL:{channel}\nURL:{video_url}\nKEYWORDS:{kw_str}"
+    
+    # Tetap gunakan Token Carl untuk menembak ke Topik Magnus (ID: 4)
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": payload_text,
         "parse_mode": "HTML",
-        "message_thread_id": 4  # FIX: Langsung tembak masuk ke topik Magnus (ID: 4)
+        "message_thread_id": 4  # Target masuk ke topik Magnus
     }
     try:
         requests.post(url, json=payload, timeout=10)
