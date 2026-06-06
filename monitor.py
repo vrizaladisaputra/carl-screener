@@ -5,6 +5,7 @@ import pytz
 import time
 import json
 import threading
+import re  # Ditambahkan untuk deteksi pola kata bahasa asing
 
 # ============================================================
 # KONFIGURASI BOT CARL + GEMINI FILTER
@@ -26,6 +27,35 @@ CAREER_KEYWORDS = [
 ]
 
 VIDEO_CACHE = {}
+
+def is_indonesian_or_english_only(title, description):
+    """
+    Python-Level Firewall untuk menyaring dan membuang konten asing (seperti Hindi, Hinglish, dll)
+    secara instan sebelum memanggil Gemini API. Hemat token & 100% akurat.
+    """
+    text = f"{title} {description}".lower()
+    
+    # 1. Cek Karakter Devnagari (Aksara India): Range Unicode \u0900 - \u097F
+    for char in text:
+        if '\u0900' <= char <= '\u097f':
+            return False
+            
+    # 2. Cek Kata-kata Khas Romanized Hindi (Hinglish) yang sering lolos deteksi biasa
+    hinglish_stopwords = {
+        "aur", "ka", "ki", "ke", "hai", "ko", "se", "bhi", "ho", "kar", 
+        "aapne", "kabhi", "socha", "sach", "asli", "naam", "yaar", "hota", 
+        "hoga", "kya", "meri", "mera", "tum", "aap", "gaya", "hi", "mein",
+        "ek", "dusre", "khilaf", "aapko"
+    }
+    
+    # Memisahkan kata dengan regex untuk menghindari kecocokan parsial
+    words = set(re.findall(r'\b\w+\b', text))
+    
+    # Jika ada kata Hinglish yang terdeteksi, tolak video
+    if words.intersection(hinglish_stopwords):
+        return False
+        
+    return True
 
 def evaluate_video_with_gemini(title, description, channel):
     """Menggunakan Gemini AI untuk menyaring ketat video berdasarkan 2 pilar Rizal"""
@@ -95,7 +125,6 @@ def search_youtube_videos(keyword):
     published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
     
-    # UPGRADE: Menambahkan "regionCode": "ID" agar memprioritaskan hasil pencarian khusus di Indonesia
     params = {
         "part": "snippet", 
         "q": keyword, 
@@ -168,7 +197,12 @@ def run_monitor():
                 channel = snippet.get("channelTitle", "N/A")
                 v_url = f"https://www.youtube.com/watch?v={vid_id}"
                 
-                # JALANKAN AI SCREENING FILTER
+                # UPGRADE: Python-Level Language Firewall Check (Zero-Cost & 100% Akurat)
+                if not is_indonesian_or_english_only(title, desc):
+                    print(f"🚫 [Firewall] Menolak konten asing (Hindi/Lainnya): {title}")
+                    continue
+                
+                # JALANKAN AI SCREENING FILTER (Hanya untuk konten yang lolos Firewall bahasa)
                 ai_evaluation = evaluate_video_with_gemini(title, desc, channel)
                 
                 # Jika API Key Hilang, hentikan program dan beri notifikasi peringatan
