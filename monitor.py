@@ -3,30 +3,110 @@ import requests
 from datetime import datetime, timedelta
 import pytz
 import time
+import json
 import threading
 
+# ============================================================
+# KONFIGURASI BOT CARL + GEMINI FILTER
+# ============================================================
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-WIB = pytz.timezone("Asia/Jakarta")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") 
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") # Tambahkan ini di Railway Carl!
 
-CARL_TOPIC_ID = 2  # ID Topik Carl di Grup
+CARL_TOPIC_ID = 2  # ID Topik Carl di Grup Telegram
 
+# UPGRADE ULANG: Keyword dengan volume pencarian raksasa & emosi tinggi di Indonesia (Viral Bait)
+# Namun akan disaring super ketat oleh Gemini agar hanya meloloskan 2 pilar Rizal.
 CAREER_KEYWORDS = [
-    "tips naik gaji", "cara cepat promosi kerja", "tips kerja di korporat",
-    "salary negotiation indonesia", "career advice indonesia", "naik jabatan cepat",
-    "toxic workplace indonesia", "fresh graduate kerja", "burnout kerja"
+    "budak korporat", "politik kantor", "realita anak korporat",
+    "banting setir karir", "gaji SCBD", "tips nego gaji",
+    "pindah kerja naik gaji", "quarter life crisis karir", "curhat kerjaan",
+    "layoff startup", "wfa jakarta cafe", "product manager indonesia"
 ]
 
 VIDEO_CACHE = {}
 
+def evaluate_video_with_gemini(title, description, channel):
+    """Menggunakan Gemini AI untuk menyaring ketat video berdasarkan 2 pilar Rizal"""
+    if not GEMINI_API_KEY:
+        # Fallback aman jika API Key belum dipasang di Carl
+        return {
+            "match": True, 
+            "pilar": "General Career", 
+            "reason": "Filter AI dilewati karena GEMINI_API_KEY belum dipasang di Railway Carl.",
+            "twist": "Korelasikan dengan pengalaman lo sebagai PM Cybersecurity (ex-Shopee/TikTok & SBM ITB).",
+            "hooks": ["Mulai sekarang, coba lo pikirin lagi..."]
+        }
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    
+    prompt = f"""
+    Kamu bertindak sebagai Content Curator & Strategy Filter kelas dunia untuk personal branding TikTok Rizal / Ical (27 tahun).
+    
+    BERIKUT ADALAH PROFIL DAN BACKROUND RIZAL:
+    - Pendidikan: SBM ITB (Manajemen Bisnis).
+    - Karir Sekarang: Product Manager (PM) di Truvisor.io, memegang produk cybersecurity & network visibility (Vectra AI & Keysight Technologies). Gaji saat ini 17jt/bulan.
+    - Cara Kerja: WFH/WFA mobile, jarang ke kantor, banyakan nyetir/pindah tempat buat ketemu customer & partner B2B di luar.
+    - Masa Lalu Karir: Pernah jadi Relationship Manager di Shopee, Account Manager Lifestyle di TikTok, dan Tech Sales di Soltius. Sukses melakukan 'Tech Pivot' dari non-tech/sales ke cybersecurity yang sangat teknis tanpa background coding.
+    
+    TUGAS KAMU:
+    Evaluasi data video YouTube Shorts atau Long-form berikut:
+    Judul Video: "{title}"
+    Deskripsi: "{description}"
+    Kreator/Channel: "{channel}"
+    
+    KAMU HANYA BOLEH MELOLOSKAN (MATCH: TRUE) JIKA VIDEO SANGAT RELATE DENGAN SALAH SATU DARI 2 PILAR INI:
+    
+    Pilar 1: "The Tech Pivot" (Karir & Pindah Jalur ke IT/Cybersecurity)
+    - Kriteria Lolos: Masuk IT/Tech untuk anak non-IT/tanpa coding, nego gaji/karir akhir 20-an, transisi sales/e-commerce ke tech corporate, atau cybersecurity dari kacamata bisnis.
+    - REJECT MUTLAK (Kriteria Reject): Tips bikin CV standar, tips interview klise, tutorial coding teknis.
+    
+    Pilar 2: "The Mobile PM Lifestyle & Corporate Hacks" (Day in My Life & Soft Skills)
+    - Kriteria Lolos: Sisi realita kerja mobile (nyetir/pindah tempat), suka duka jadi Product Manager, komunikasi B2B/negosiasi klien, manajemen waktu lapangan, pov anak corporate umur 27 yang pragmatis.
+    - REJECT MUTLAK (Kriteria Reject): Motivasi toxic positivity, tips produktivitas tidak realistis, konten kantor komedi kubikel kaku.
+
+    Kembalikan respon harus dalam format JSON yang valid seperti contoh di bawah (JANGAN beri komentar atau penjelasan apa pun di luar JSON):
+    {{
+        "match": true_atau_false,
+        "pilar": "Pilar 1: The Tech Pivot" atau "Pilar 2: The Mobile PM Lifestyle & Corporate Hacks" atau "None",
+        "reason": "Alasan singkat kenapa video ini lolos kurasi pilar kamu",
+        "twist": "Instruksi spesifik cara nge-twist konten ini agar masuk ke sudut pandang/pengalaman hidup Rizal (SBM ITB/Ex-TikTok-Shopee/PM Cybersecurity gaji 17jt)",
+        "hooks": [
+            "Hook alternatif 1 (gaya The Pragmatic Older Brother: santai, blak-blakan, realistis, berbobot)",
+            "Hook alternatif 2"
+        ]
+    }}
+    """
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"responseMimeType": "application/json"}
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=15)
+        response.raise_for_status()
+        res_data = response.json()
+        result_text = res_data['candidates'][0]['content']['parts'][0]['text']
+        return json.loads(result_text)
+    except Exception as e:
+        print(f"Error pada penyaringan AI Carl: {e}")
+        return {"match": False}
+
 def search_youtube_videos(keyword):
     published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
+    
     params = {
-        "part": "snippet", "q": keyword, "type": "video", "videoDuration": "short",
-        "publishedAfter": published_after, "maxResults": 5, "order": "viewCount",
-        "relevanceLanguage": "id", "key": YOUTUBE_API_KEY,
+        "part": "snippet", 
+        "q": keyword, 
+        "type": "video",
+        "publishedAfter": published_after, 
+        "maxResults": 3, 
+        "order": "viewCount",
+        "relevanceLanguage": "id", 
+        "key": YOUTUBE_API_KEY,
     }
     try: return requests.get(url, params=params, timeout=10).json().get("items", [])
     except: return []
@@ -52,49 +132,79 @@ def send_alert_with_button(message, callback_data):
     try: requests.post(url, json=payload, timeout=10)
     except: pass
 
-# ============================================================
-# JALUR TRANSMISI DIREK KE MAGNUS (BYPASS TELEGRAM BOT PRIVACY)
-# ============================================================
-def forward_to_magnus(title, channel, video_url):
-    # Railway memetakan nama service menjadi alamat internal (magnus-scriptwriter) di port 8080
-    magnus_internal_url = "http://magnus-scriptwriter:8080/generate"
+def forward_to_magnus(title, channel, video_url, twist_strategy):
+    enriched_title = f"{title} (💡 STRATEGI TWIST ICAL: {twist_strategy})"
     
+    magnus_internal_url = "http://magnus-scriptwriter:8080/generate"
     payload = {
-        "title": title,
+        "title": enriched_title,
         "channel": channel,
         "video_url": video_url
     }
-    
     try:
         response = requests.post(magnus_internal_url, json=payload, timeout=15)
         if response.status_code == 200:
             return True
     except Exception as e:
-        print(f"Jalur tol Railway error: {e}")
+        print(f"Gagal kirim via jalur internal: {e}")
     return False
 
 def run_monitor():
-    send_telegram("⚡ <b>Carl:</b> Memulai pencarian video viral harian...")
+    send_telegram("⚡ <b>Carl:</b> Memulai pencarian dan penyaringan AI ketat berdasarkan 2 Pilar Rizal...")
+    found_any = False
+    
     for kw in CAREER_KEYWORDS:
         videos = search_youtube_videos(kw)
         for v in videos:
             vid_id = v.get("id", {}).get("videoId")
             if not vid_id: continue
+            
             detail = get_video_stats(vid_id)
             stats = detail.get("statistics", {})
+            snippet = detail.get("snippet", {})
             
             if int(stats.get("commentCount", 0)) >= 1:
-                title = detail.get("snippet", {}).get("title", "N/A")
-                channel = detail.get("snippet", {}).get("channelTitle", "N/A")
+                title = snippet.get("title", "N/A")
+                desc = snippet.get("description", "")
+                channel = snippet.get("channelTitle", "N/A")
                 v_url = f"https://www.youtube.com/watch?v={vid_id}"
                 
-                msg = f"🚨 <b>CARL — Viral Career Alert!</b>\n\n🎬 <b>{title}</b>\n👤 {channel}\n🔗 {v_url}"
-                callback_data = f"gen_{vid_id}"
-                VIDEO_CACHE[callback_data] = {"title": title, "channel": channel, "video_url": v_url}
+                ai_evaluation = evaluate_video_with_gemini(title, desc, channel)
                 
-                send_alert_with_button(msg, callback_data)
-                return
-    send_telegram("🌅 <b>Carl Laporan:</b> Hari ini aman! Belum ada konten over-viral baru.")
+                if ai_evaluation.get("match") is True:
+                    pilar = ai_evaluation.get("pilar", "Pilar Konten")
+                    reason = ai_evaluation.get("reason", "")
+                    twist = ai_evaluation.get("twist", "")
+                    hooks_list = ai_evaluation.get("hooks", [])
+                    
+                    hooks_text = ""
+                    for hk in hooks_list:
+                        hooks_text += f"• <i>\"{hk}\"</i>\n"
+                    
+                    msg = f"🚨 <b>CARL — PILAR MATCH DETECTED!</b>\n\n" \
+                          f"🎬 <b>{title}</b>\n" \
+                          f"👤 Channel: {channel}\n" \
+                          f"🎯 <b>{pilar}</b>\n\n" \
+                          f"📌 <b>Kenapa Cocok:</b>\n{reason}\n\n" \
+                          f"🔀 <b>Twist Strategy (Untuk Ical):</b>\n{twist}\n\n" \
+                          f"🎙 <b>Pragmatic Hooks:</b>\n{hooks_text}\n" \
+                          f"🔗 {v_url}"
+                    
+                    callback_data = f"gen_{vid_id}"
+                    
+                    VIDEO_CACHE[callback_data] = {
+                        "title": title, 
+                        "channel": channel, 
+                        "video_url": v_url,
+                        "twist": twist
+                    }
+                    
+                    send_alert_with_button(msg, callback_data)
+                    found_any = True
+                    return
+                    
+    if not found_any:
+        send_telegram("🌅 <b>Carl Laporan:</b> Pemindaian selesai. Hari ini tidak ada video luar yang lolos filter ketat pilar Rizal.")
 
 def poll_carl():
     offset = None
@@ -111,10 +221,10 @@ def poll_carl():
                     requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": cq["id"], "text": "Menghubungi Magnus..."})
                     if cb_data in VIDEO_CACHE:
                         v_info = VIDEO_CACHE[cb_data]
-                        if forward_to_magnus(v_info["title"], v_info["channel"], v_info["video_url"]):
-                            send_telegram(f"✅ Sukses menghubungi Magnus lewat jalur internal Railway!")
+                        if forward_to_magnus(v_info["title"], v_info["channel"], v_info["video_url"], v_info["twist"]):
+                            send_telegram(f"✅ Sukses! Strategi twist & data video dikirim ke Magnus.")
                         else:
-                            send_telegram(f"⚠️ Gagal mengirim data lewat jalur tol internal.")
+                            send_telegram(f"⚠️ Gagal mengirim data lewat jalur internal.")
                 elif "message" in update and "text" in update["message"]:
                     if update["message"]["text"] == "/run":
                         threading.Thread(target=run_monitor).start()
