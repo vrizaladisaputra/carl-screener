@@ -12,7 +12,7 @@ import threading
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") # Tambahkan ini di Railway Carl!
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") # Wajib ditambahkan di Railway Carl!
 
 CARL_TOPIC_ID = 2  # ID Topik Carl di Grup Telegram
 
@@ -30,14 +30,8 @@ VIDEO_CACHE = {}
 def evaluate_video_with_gemini(title, description, channel):
     """Menggunakan Gemini AI untuk menyaring ketat video berdasarkan 2 pilar Rizal"""
     if not GEMINI_API_KEY:
-        # Fallback aman jika API Key belum dipasang di Carl
-        return {
-            "match": True, 
-            "pilar": "General Career", 
-            "reason": "Filter AI dilewati karena GEMINI_API_KEY belum dipasang di Railway Carl.",
-            "twist": "Korelasikan dengan pengalaman lo sebagai PM Cybersecurity (ex-Shopee/TikTok & SBM ITB).",
-            "hooks": ["Mulai sekarang, coba lo pikirin lagi..."]
-        }
+        # PENGAMAN BARU: Mengembalikan status error agar tidak meloloskan video sembarangan (anime, dsb)
+        return {"match": False, "error": "api_key_missing"}
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
@@ -169,7 +163,13 @@ def run_monitor():
                 channel = snippet.get("channelTitle", "N/A")
                 v_url = f"https://www.youtube.com/watch?v={vid_id}"
                 
+                # JALANKAN AI SCREENING FILTER
                 ai_evaluation = evaluate_video_with_gemini(title, desc, channel)
+                
+                # PENGAMAN BARU: Jika API Key Hilang, hentikan program dan beri notifikasi peringatan
+                if ai_evaluation.get("error") == "api_key_missing":
+                    send_telegram("⚠️ <b>Sistem Carl Error:</b> Variabel <code>GEMINI_API_KEY</code> belum dipasang di Railway Carl! Penyaringan dihentikan sementara demi mencegah spam konten tidak relevan.")
+                    return
                 
                 if ai_evaluation.get("match") is True:
                     pilar = ai_evaluation.get("pilar", "Pilar Konten")
