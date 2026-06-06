@@ -16,7 +16,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") # Wajib ditambahkan di Railway
 
 CARL_TOPIC_ID = 2  # ID Topik Carl di Grup Telegram
 
-# UPGRADE ULANG: Keyword dengan volume pencarian raksasa & emosi tinggi di Indonesia (Viral Bait)
+# Keyword dengan volume pencarian raksasa & emosi tinggi di Indonesia (Viral Bait)
 # Namun akan disaring super ketat oleh Gemini agar hanya meloloskan 2 pilar Rizal.
 CAREER_KEYWORDS = [
     "budak korporat", "politik kantor", "realita anak korporat",
@@ -30,7 +30,6 @@ VIDEO_CACHE = {}
 def evaluate_video_with_gemini(title, description, channel):
     """Menggunakan Gemini AI untuk menyaring ketat video berdasarkan 2 pilar Rizal"""
     if not GEMINI_API_KEY:
-        # PENGAMAN BARU: Mengembalikan status error agar tidak meloloskan video sembarangan (anime, dsb)
         return {"match": False, "error": "api_key_missing"}
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -50,7 +49,11 @@ def evaluate_video_with_gemini(title, description, channel):
     Deskripsi: "{description}"
     Kreator/Channel: "{channel}"
     
-    KAMU HANYA BOLEH MELOLOSKAN (MATCH: TRUE) JIKA VIDEO SANGAT RELATE DENGAN SALAH SATU DARI 2 PILAR INI:
+    🚨 ATURAN LOKALISASI & BAHASA (WAJIB DIPATUHI):
+    1. REJECT MUTLAK (MATCH: FALSE) jika video menggunakan bahasa selain Bahasa Indonesia atau Bahasa Inggris (seperti Bahasa Hindi/India, Spanyol, Arab, Tagalog, dll). Target audiens Rizal adalah profesional lokal di Indonesia.
+    2. Abaikan/Reject video yang memiliki aksara non-Latin atau mengandung kata-kata regional India/asing (contoh kata: 'aur', 'ka', 'asli', 'sach', 'ki', 'ke', dll) pada judul atau deskripsinya.
+    
+    KAMU HANYA BOLEH MELOLOSKAN (MATCH: TRUE) JIKA VIDEO BERBAHASA INDONESIA/INGGRIS DAN SANGAT RELATE DENGAN SALAH SATU DARI 2 PILAR INI:
     
     Pilar 1: "The Tech Pivot" (Karir & Pindah Jalur ke IT/Cybersecurity)
     - Kriteria Lolos: Masuk IT/Tech untuk anak non-IT/tanpa coding, nego gaji/karir akhir 20-an, transisi sales/e-commerce ke tech corporate, atau cybersecurity dari kacamata bisnis.
@@ -92,6 +95,7 @@ def search_youtube_videos(keyword):
     published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
     
+    # UPGRADE: Menambahkan "regionCode": "ID" agar memprioritaskan hasil pencarian khusus di Indonesia
     params = {
         "part": "snippet", 
         "q": keyword, 
@@ -100,6 +104,7 @@ def search_youtube_videos(keyword):
         "maxResults": 3, 
         "order": "viewCount",
         "relevanceLanguage": "id", 
+        "regionCode": "ID",
         "key": YOUTUBE_API_KEY,
     }
     try: return requests.get(url, params=params, timeout=10).json().get("items", [])
@@ -166,7 +171,7 @@ def run_monitor():
                 # JALANKAN AI SCREENING FILTER
                 ai_evaluation = evaluate_video_with_gemini(title, desc, channel)
                 
-                # PENGAMAN BARU: Jika API Key Hilang, hentikan program dan beri notifikasi peringatan
+                # Jika API Key Hilang, hentikan program dan beri notifikasi peringatan
                 if ai_evaluation.get("error") == "api_key_missing":
                     send_telegram("⚠️ <b>Sistem Carl Error:</b> Variabel <code>GEMINI_API_KEY</code> belum dipasang di Railway Carl! Penyaringan dihentikan sementara demi mencegah spam konten tidak relevan.")
                     return
