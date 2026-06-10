@@ -57,52 +57,64 @@ def is_indonesian_or_english_only(title, description):
         
     return True
 
-def evaluate_video_with_gemini(title, description, channel):
-    """Menggunakan Gemini AI untuk menyaring ketat video berdasarkan 2 pilar Rizal"""
+def evaluate_videos_batch_with_gemini(video_list):
+    """
+    Menggunakan Gemini AI untuk menyaring daftar video secara massal (batch).
+    Mengurangi puluhan API call menjadi hanya 1-2 call saja! Bebas error 429.
+    """
     if not GEMINI_API_KEY:
-        return {"match": False, "error": "api_key_missing"}
+        return {"match_found": False, "error": "api_key_missing"}
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    
+    # Format list video agar rapi dibaca AI
+    formatted_list = []
+    for idx, vid in enumerate(video_list):
+        formatted_list.append(f"""
+--- VIDEO KANDIDAT #{idx+1} ---
+ID: {vid['id']}
+Title: {vid['title']}
+Channel: {vid['channel']}
+Description: {vid['description']}
+""")
+    
+    videos_text = "\n".join(formatted_list)
     
     prompt = f"""
     Kamu bertindak sebagai Content Curator & Strategy Filter kelas dunia untuk personal branding TikTok Rizal / Ical (27 tahun).
     
-    BERIKUT ADALAH PROFIL DAN BACKROUND RIZAL:
+    BERIKUT ADALAH PROFIL DAN BACKGROUND RIZAL:
     - Pendidikan: SBM ITB (Manajemen Bisnis).
     - Karir Sekarang: Product Manager (PM) di Truvisor.io, memegang produk cybersecurity & network visibility (Vectra AI & Keysight Technologies). Gaji saat ini 17jt/bulan.
     - Cara Kerja: WFH/WFA mobile, jarang ke kantor, banyakan nyetir/pindah tempat buat ketemu customer & partner B2B di luar.
     - Masa Lalu Karir: Pernah jadi Relationship Manager di Shopee, Account Manager Lifestyle di TikTok, dan Tech Sales di Soltius. Sukses melakukan 'Tech Pivot' dari non-tech/sales ke cybersecurity yang sangat teknis tanpa background coding.
     
     TUGAS KAMU:
-    Evaluasi data video YouTube Shorts atau Long-form berikut:
-    Judul Video: "{title}"
-    Deskripsi: "{description}"
-    Kreator/Channel: "{channel}"
+    Evaluasi daftar video kandidat berikut dan tentukan apakah ada yang cocok untuk dijadikan bahan konten TikTok Rizal:
+    {videos_text}
     
-    🚨 ATURAN LOKALISASI & BAHASA (WAJIB DIPATUHI):
-    1. REJECT MUTLAK (MATCH: FALSE) jika video menggunakan bahasa selain Bahasa Indonesia atau Bahasa Inggris (seperti Bahasa Hindi/India, Spanyol, Arab, Tagalog, dll). Target audiens Rizal adalah profesional lokal di Indonesia.
-    2. Abaikan/Reject video yang memiliki aksara non-Latin atau mengandung kata-kata regional India/asing (contoh kata: 'aur', 'ka', 'asli', 'sach', 'ki', 'ke', dll) pada judul atau deskripsinya.
-    
-    KAMU HANYA BOLEH MELOLOSKAN (MATCH: TRUE) JIKA VIDEO BERBAHASA INDONESIA/INGGRIS DAN SANGAT RELATE DENGAN SALAH SATU DARI 2 PILAR INI:
-    
-    Pilar 1: "The Tech Pivot" (Karir & Pindah Jalur ke IT/Cybersecurity)
-    - Kriteria Lolos: Masuk IT/Tech untuk anak non-IT/tanpa coding, nego gaji/karir akhir 20-an, transisi sales/e-commerce ke tech corporate, atau cybersecurity dari kacamata bisnis.
-    - REJECT MUTLAK (Kriteria Reject): Tips bikin CV standar, tips interview klise, tutorial coding teknis.
-    
-    Pilar 2: "The Mobile PM Lifestyle & Corporate Hacks" (Day in My Life & Soft Skills)
-    - Kriteria Lolos: Sisi realita kerja mobile (nyetir/pindah tempat), suka duka jadi Product Manager, komunikasi B2B/negosiasi klien, manajemen waktu lapangan, pov anak corporate umur 27 yang pragmatis.
-    - REJECT MUTLAK (Kriteria Reject): Motivasi toxic positivity, tips produktivitas tidak realistis, konten kantor komedi kubikel kaku.
+    🚨 ATURAN EVALUASI & KURASI PILAR:
+    1. Pilih MAKSIMAL SATU (1) video TERBAIK yang paling cocok dengan salah satu dari 2 pilar Rizal:
+       - Pilar 1: "The Tech Pivot" (Karir & Pindah Jalur ke IT/Cybersecurity)
+       - Pilar 2: "The Mobile PM Lifestyle & Corporate Hacks" (Day in My Life & Soft Skills)
+    2. Jika tidak ada satu pun video yang memenuhi kriteria pilar Rizal, set "match_found" menjadi false.
 
     Kembalikan respon harus dalam format JSON yang valid seperti contoh di bawah (JANGAN beri komentar atau penjelasan apa pun di luar JSON):
     {{
-        "match": true_atau_false,
-        "pilar": "Pilar 1: The Tech Pivot" atau "Pilar 2: The Mobile PM Lifestyle & Corporate Hacks" atau "None",
+        "match_found": true,
+        "selected_video_id": "Masukkan_ID_Video_Yang_Kamu_Pilih_Di_Sini",
+        "pilar": "Pilar 1: The Tech Pivot" atau "Pilar 2: The Mobile PM Lifestyle & Corporate Hacks",
         "reason": "Alasan singkat kenapa video ini lolos kurasi pilar kamu",
         "twist": "Instruksi spesifik cara nge-twist konten ini agar masuk ke sudut pandang/pengalaman hidup Rizal (SBM ITB/Ex-TikTok-Shopee/PM Cybersecurity gaji 17jt)",
         "hooks": [
             "Hook alternatif 1 (gaya The Pragmatic Older Brother: santai, blak-blakan, realistis, berbobot)",
             "Hook alternatif 2"
         ]
+    }}
+    
+    Jika tidak ada satupun yang cocok:
+    {{
+        "match_found": false
     }}
     """
     
@@ -112,14 +124,14 @@ def evaluate_video_with_gemini(title, description, channel):
     }
     
     try:
-        response = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=15)
+        response = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=25)
         response.raise_for_status()
         res_data = response.json()
         result_text = res_data['candidates'][0]['content']['parts'][0]['text']
         return json.loads(result_text)
     except Exception as e:
-        print(f"Error pada penyaringan AI Carl: {e}")
-        return {"match": False}
+        print(f"Error pada penyaringan Batch AI Carl: {e}")
+        return {"match_found": False}
 
 def search_youtube_videos(keyword):
     published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -178,14 +190,16 @@ def forward_to_magnus(title, channel, video_url, twist_strategy):
     return False
 
 def run_monitor():
-    send_telegram("⚡ <b>Carl:</b> Memulai pencarian dan penyaringan AI ketat berdasarkan 2 Pilar Rizal...")
-    found_any = False
+    send_telegram("⚡ <b>Carl:</b> Mengumpulkan video kandidat potensial dari 12 kata kunci harian...")
+    candidates = []
+    seen_ids = set()
     
     for kw in CAREER_KEYWORDS:
         videos = search_youtube_videos(kw)
         for v in videos:
             vid_id = v.get("id", {}).get("videoId")
-            if not vid_id: continue
+            if not vid_id or vid_id in seen_ids: continue
+            seen_ids.add(vid_id)
             
             detail = get_video_stats(vid_id)
             stats = detail.get("statistics", {})
@@ -197,56 +211,71 @@ def run_monitor():
                 channel = snippet.get("channelTitle", "N/A")
                 v_url = f"https://www.youtube.com/watch?v={vid_id}"
                 
-                # UPGRADE: Python-Level Language Firewall Check (Zero-Cost & 100% Akurat)
-                if not is_indonesian_or_english_only(title, desc):
-                    print(f"🚫 [Firewall] Menolak konten asing (Hindi/Lainnya): {title}")
-                    continue
-                
-                # JALANKAN AI SCREENING FILTER (Hanya untuk konten yang lolos Firewall bahasa)
-                ai_evaluation = evaluate_video_with_gemini(title, desc, channel)
-                
-                # Jika API Key Hilang, hentikan program dan beri notifikasi peringatan
-                if ai_evaluation.get("error") == "api_key_missing":
-                    send_telegram("⚠️ <b>Sistem Carl Error:</b> Variabel <code>GEMINI_API_KEY</code> belum dipasang di Railway Carl! Penyaringan dihentikan sementara demi mencegah spam konten tidak relevan.")
-                    return
-                
-                if ai_evaluation.get("match") is True:
-                    pilar = ai_evaluation.get("pilar", "Pilar Konten")
-                    reason = ai_evaluation.get("reason", "")
-                    twist = ai_evaluation.get("twist", "")
-                    hooks_list = ai_evaluation.get("hooks", [])
+                # PYTHON FIREWALL CHECK (Instan & Tanpa Makan Token!)
+                if is_indonesian_or_english_only(title, desc):
+                    candidates.append({
+                        "id": vid_id,
+                        "title": title,
+                        "description": desc,
+                        "channel": channel,
+                        "url": v_url
+                    })
+        time.sleep(0.5) # Jeda aman rate limit YouTube Search API
                     
-                    hooks_text = ""
-                    for hk in hooks_list:
-                        hooks_text += f"• <i>\"{hk}\"</i>\n"
-                    
-                    msg = f"🚨 <b>CARL — PILAR MATCH DETECTED!</b>\n\n" \
-                          f"🎬 <b>{title}</b>\n" \
-                          f"👤 Channel: {channel}\n" \
-                          f"🎯 <b>{pilar}</b>\n\n" \
-                          f"📌 <b>Kenapa Cocok:</b>\n{reason}\n\n" \
-                          f"🔀 <b>Twist Strategy (Untuk Ical):</b>\n{twist}\n\n" \
-                          f"🎙 <b>Pragmatic Hooks:</b>\n{hooks_text}\n" \
-                          f"🔗 {v_url}"
-                    
-                    callback_data = f"gen_{vid_id}"
-                    
-                    VIDEO_CACHE[callback_data] = {
-                        "title": title, 
-                        "channel": channel, 
-                        "video_url": v_url,
-                        "twist": twist
-                    }
-                    
-                    send_alert_with_button(msg, callback_data)
-                    found_any = True
-                    return
-                
-                # JALUR PENGAMAN: Jeda 4 detik setelah memanggil API Gemini agar tidak menghabiskan kuota RPM (15 RPM)
-                time.sleep(4)
-                    
-    if not found_any:
-        send_telegram("🌅 <b>Carl Laporan:</b> Pemindaian selesai. Hari ini tidak ada video luar yang lolos filter ketat pilar Rizal.")
+    if not candidates:
+        send_telegram("🌅 <b>Carl Laporan:</b> Pemindaian selesai. Tidak ada video kandidat yang memenuhi kriteria awal bahasa & engagement.")
+        return
+
+    send_telegram(f"🧠 <b>Carl:</b> Menemukan {len(candidates)} kandidat awal. Memilah video terbaik menggunakan filter AI secara batch...")
+    
+    # Ambil maksimal 8 kandidat teratas untuk dikurasi sekaligus dalam 1 API call
+    batch_candidates = candidates[:8]
+    
+    ai_evaluation = evaluate_videos_batch_with_gemini(batch_candidates)
+    
+    if ai_evaluation.get("error") == "api_key_missing":
+        send_telegram("⚠️ <b>Sistem Carl Error:</b> Variabel <code>GEMINI_API_KEY</code> belum dipasang di Railway Carl!")
+        return
+        
+    if ai_evaluation.get("match_found") is True:
+        selected_id = ai_evaluation.get("selected_video_id")
+        
+        # Temukan data objek kandidat asli dari daftar
+        selected_video = next((c for c in batch_candidates if c["id"] == selected_id), None)
+        
+        if selected_video:
+            pilar = ai_evaluation.get("pilar", "Pilar Konten")
+            reason = ai_evaluation.get("reason", "")
+            twist = ai_evaluation.get("twist", "")
+            hooks_list = ai_evaluation.get("hooks", [])
+            
+            hooks_text = ""
+            for hk in hooks_list:
+                hooks_text += f"• <i>\"{hk}\"</i>\n"
+            
+            msg = f"🚨 <b>CARL — PILAR MATCH DETECTED!</b>\n\n" \
+                  f"🎬 <b>{selected_video['title']}</b>\n" \
+                  f"👤 Channel: {selected_video['channel']}\n" \
+                  f"🎯 <b>{pilar}</b>\n\n" \
+                  f"📌 <b>Kenapa Cocok:</b>\n{reason}\n\n" \
+                  f"🔀 <b>Twist Strategy (Untuk Ical):</b>\n{twist}\n\n" \
+                  f"🎙 <b>Pragmatic Hooks:</b>\n{hooks_text}\n" \
+                  f"🔗 {selected_video['url']}"
+            
+            callback_data = f"gen_{selected_id}"
+            
+            VIDEO_CACHE[callback_data] = {
+                "title": selected_video['title'], 
+                "channel": selected_video['channel'], 
+                "video_url": selected_video['url'],
+                "twist": twist
+            }
+            
+            send_alert_with_button(msg, callback_data)
+        else:
+            send_telegram("🌅 <b>Carl Laporan:</b> AI memilih kecocokan tetapi ID video tidak terdaftar dalam kandidat.")
+    else:
+        send_telegram("🌅 <b>Carl Laporan:</b> Pemindaian selesai. Tidak ada video harian luar yang lolos filter ketat pilar Rizal.")
 
 def poll_carl():
     offset = None
@@ -283,11 +312,9 @@ def scheduler_loop():
     while True:
         try:
             now = datetime.now(jakarta_tz)
-            # Trigger jika menit berada pada angka 00 dan jam adalah 8 (pagi) atau 20 (malam)
             if now.minute == 0 and (now.hour == 8 or now.hour == 20):
                 print(f"⏰ [Scheduler] Memulai screening otomatis terjadwal pada jam {now.strftime('%H:%M WIB')}")
                 threading.Thread(target=run_monitor).start()
-                # Kasih jeda tidur agak lama agar tidak men-trigger dua kali di menit yang sama
                 time.sleep(65)
         except Exception as e:
             print(f"⚠️ Error di sistem penjadwal: {e}")
