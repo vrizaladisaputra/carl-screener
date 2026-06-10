@@ -1,7 +1,7 @@
 import os
 import requests
 from datetime import datetime, timedelta, timezone  # Menggunakan timezone bawaan Python
-time
+import time  # Perbaikan typo: ditambahkan 'import' di depan time
 import json
 import threading
 import re  # Ditambahkan untuk deteksi pola kata bahasa asing
