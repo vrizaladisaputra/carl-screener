@@ -1,8 +1,7 @@
 import os
 import requests
-from datetime import datetime, timedelta
-import pytz
-import time
+from datetime import datetime, timedelta, timezone  # Menggunakan timezone bawaan Python
+time
 import json
 import threading
 import re  # Ditambahkan untuk deteksi pola kata bahasa asing
@@ -134,7 +133,7 @@ Description: {vid['description']}
         return {"match_found": False}
 
 def search_youtube_videos(keyword):
-    published_after = (datetime.now(pytz.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    published_after = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
     
     params = {
@@ -307,7 +306,8 @@ def poll_carl():
 # ============================================================
 def scheduler_loop():
     """Mengecek waktu setiap menit dan mentrigger Carl otomatis pada jam target"""
-    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    # Menggunakan built-in timezone WIB (UTC+7) tanpa butuh install pytz eksternal
+    jakarta_tz = timezone(timedelta(hours=7))
     print("🕒 Penjadwal otomatis Carl diaktifkan untuk jam 08:00 dan 20:00 WIB...")
     
     while True:
