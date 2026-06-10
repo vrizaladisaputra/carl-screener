@@ -175,7 +175,8 @@ def send_alert_with_button(message, callback_data):
 def forward_to_magnus(title, channel, video_url, twist_strategy):
     enriched_title = f"{title} (💡 STRATEGI TWIST ICAL: {twist_strategy})"
     
-    magnus_internal_url = "http://magnus-scriptwriter:8080/generate"
+    # UPGRADE: Jalur internal dinamis menggunakan official Railway Private Domain & Port
+    magnus_internal_url = os.environ.get("MAGNUS_URL", "http://magnus-scriptwriter.railway.internal:8080/generate")
     payload = {
         "title": enriched_title,
         "channel": channel,
