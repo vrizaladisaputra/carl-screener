@@ -241,6 +241,9 @@ def run_monitor():
                     send_alert_with_button(msg, callback_data)
                     found_any = True
                     return
+                
+                # JALUR PENGAMAN: Jeda 4 detik setelah memanggil API Gemini agar tidak menghabiskan kuota RPM (15 RPM)
+                time.sleep(4)
                     
     if not found_any:
         send_telegram("🌅 <b>Carl Laporan:</b> Pemindaian selesai. Hari ini tidak ada video luar yang lolos filter ketat pilar Rizal.")
