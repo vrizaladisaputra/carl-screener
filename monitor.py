@@ -82,11 +82,12 @@ Description: {vid['description']}
     prompt = f"""
     Kamu bertindak sebagai Content Curator & Strategy Filter kelas dunia untuk personal branding TikTok Rizal / Ical (27 tahun).
     
-    BERIKUT ADALAH PROFIL DAN BACKGROUND RIZAL:
+    BERIKUT ADALAH PROFIL DAN BACKGROUND RIZAL (DIPERBARUI):
     - Pendidikan: SBM ITB (Manajemen Bisnis).
-    - Karir Sekarang: Product Manager (PM) di Truvisor.io, memegang produk cybersecurity & network visibility (Vectra AI & Keysight Technologies). Gaji saat ini 17jt/bulan.
-    - Cara Kerja: WFH/WFA mobile, jarang ke kantor, banyakan nyetir/pindah tempat buat ketemu customer & partner B2B di luar.
-    - Masa Lalu Karir: Pernah jadi Relationship Manager di Shopee, Account Manager Lifestyle di TikTok, dan Tech Sales di Soltius. Sukses melakukan 'Tech Pivot' dari non-tech/sales ke cybersecurity yang sangat teknis tanpa background coding.
+    - Karir Sekarang: Product Manager (PM) Komersial, Sales & Marketing di Truvisor.io, memegang lini produk cybersecurity & network visibility (Vectra AI & Keysight Technologies). 
+      *CATATAN PENTING:* Rizal BUKAN PM teknis yang membuat aplikasi atau day-to-day mengurusi software developer, UI/UX, Jira sprint, atau coding. Peran PM Rizal fokus pada SISI BISNIS, mengelola hubungan dengan principal (pemilik solusi global dari luar negeri), merancang strategi jualan, dan mendistribusikannya ke partner-partner sistem integrator lokal di Indonesia. Gaji saat ini 17jt/bulan.
+    - Cara Kerja: WFH/WFA mobile, mengurus partner, negosiasi dengan principal asing, sales enablement, jarang ke kantor, banyakan nyetir/pindah tempat buat ketemu customer & partner B2B di lapangan.
+    - Masa Lalu Karir: Pernah jadi Relationship Manager di Shopee, Account Manager Lifestyle di TikTok, dan Tech Sales di Soltius. Sukses melakukan 'Tech Pivot' dari sales konsumer ke ranah cybersecurity komersial B2B yang bernilai tinggi tanpa harus bisa nulis baris kode (coding) sama sekali.
     
     TUGAS KAMU:
     Evaluasi daftar video kandidat berikut dan tentukan apakah ada yang cocok untuk dijadikan bahan konten TikTok Rizal:
@@ -94,8 +95,12 @@ Description: {vid['description']}
     
     🚨 ATURAN EVALUASI & KURASI PILAR:
     1. Pilih MAKSIMAL SATU (1) video TERBAIK yang paling cocok dengan salah satu dari 2 pilar Rizal:
-       - Pilar 1: "The Tech Pivot" (Karir & Pindah Jalur ke IT/Cybersecurity)
+       - Pilar 1: "The Tech Pivot" (Karir & Pindah Jalur ke IT/Cybersecurity B2B)
+         * Kriteria Lolos: Masuk ke industri tech/cybersecurity untuk anak non-IT/tanpa coding, transisi dari sales retail ke B2B enterprise corporate, negosiasi gaji korporat akhir 20-an.
+         * REJECT MUTLAK (Kriteria Reject): Tips interview standar HRD, tips bikin resume/CV klise, atau tutorial coding teknis.
        - Pilar 2: "The Mobile PM Lifestyle & Corporate Hacks" (Day in My Life & Soft Skills)
+         * Kriteria Lolos: Suka duka jadi PM Komersial/B2B (menghadapi drama principal global, manage partner lokal, cara melakukan sales enablement), realita kerja mobile (nyetir/pindah tempat), negosiasi bisnis, manajemen waktu lapangan, pov anak corporate umur 27 yang pragmatis dan realistis.
+         * REJECT MUTLAK (Kriteria Reject): Pembahasan agile/scrum master, sprint planning, Jira, UI/UX design, komedi kubikel kantor kaku, motivasi toxic positivity.
     2. Jika tidak ada satu pun video yang memenuhi kriteria pilar Rizal, set "match_found" menjadi false.
 
     Kembalikan respon harus dalam format JSON yang valid seperti contoh di bawah (JANGAN beri komentar atau penjelasan apa pun di luar JSON):
@@ -104,7 +109,7 @@ Description: {vid['description']}
         "selected_video_id": "Masukkan_ID_Video_Yang_Kamu_Pilih_Di_Sini",
         "pilar": "Pilar 1: The Tech Pivot" atau "Pilar 2: The Mobile PM Lifestyle & Corporate Hacks",
         "reason": "Alasan singkat kenapa video ini lolos kurasi pilar kamu",
-        "twist": "Instruksi spesifik cara nge-twist konten ini agar masuk ke sudut pandang/pengalaman hidup Rizal (SBM ITB/Ex-TikTok-Shopee/PM Cybersecurity gaji 17jt)",
+        "twist": "Instruksi spesifik cara nge-twist konten ini agar masuk ke sudut pandang/pengalaman hidup Rizal (PM B2B non-teknis, SBM ITB, Ex-Shopee/TikTok, manage principal & partner)",
         "hooks": [
             "Hook alternatif 1 (gaya The Pragmatic Older Brother: santai, blak-blakan, realistis, berbobot)",
             "Hook alternatif 2"
