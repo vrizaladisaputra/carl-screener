@@ -269,7 +269,37 @@ def poll_carl():
                         threading.Thread(target=run_monitor).start()
         except: time.sleep(5)
 
+# ============================================================
+# PENJADWAL OTOMATIS (RUNNING AT 08:00 & 20:00 WIB JAKARTA TIME)
+# ============================================================
+def scheduler_loop():
+    """Mengecek waktu setiap menit dan mentrigger Carl otomatis pada jam target"""
+    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    print("🕒 Penjadwal otomatis Carl diaktifkan untuk jam 08:00 dan 20:00 WIB...")
+    
+    while True:
+        try:
+            now = datetime.now(jakarta_tz)
+            # Trigger jika menit berada pada angka 00 dan jam adalah 8 (pagi) atau 20 (malam)
+            if now.minute == 0 and (now.hour == 8 or now.hour == 20):
+                print(f"⏰ [Scheduler] Memulai screening otomatis terjadwal pada jam {now.strftime('%H:%M WIB')}")
+                threading.Thread(target=run_monitor).start()
+                # Kasih jeda tidur agak lama agar tidak men-trigger dua kali di menit yang sama
+                time.sleep(65)
+        except Exception as e:
+            print(f"⚠️ Error di sistem penjadwal: {e}")
+        time.sleep(30) # Cek kembali setiap 30 detik
+
 if __name__ == "__main__":
+    # 1. Jalankan polling Telegram Carl
     threading.Thread(target=poll_carl, daemon=True).start()
+    
+    # 2. Jalankan thread penjadwal otomatis jam 8 pagi dan malam
+    threading.Thread(target=scheduler_loop, daemon=True).start()
+    
+    # 3. Jalankan sekali pas startup biar Rizal tahu Carl-nya aktif mendeteksi
     run_monitor()
-    while True: time.sleep(3600)
+    
+    # Jaga agar program utama tetap hidup
+    while True: 
+        time.sleep(3600)
